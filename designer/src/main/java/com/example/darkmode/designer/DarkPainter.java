@@ -244,43 +244,44 @@ public final class DarkPainter {
     }
 
     private void removePropertyEditorHoverTrackers(Component c) {
-        // Only act inside the Property Editor area
         if (!isUnder(c, FQCN_PROPERTY_EDITOR_FRAME)) return;
 
-        // Common hover tracker class name used in this pane (string match so we don't need the OEM class)
-        final String HOVER_TRACKER_TOKEN = "HoverTracker$ComponentTracker";
-
-        // Strip from the component itself
+        // Strip from this component
         if (c instanceof JComponent jc) {
             for (var ml : jc.getMouseListeners()) {
-                if (ml != null && ml.getClass().getName().contains(HOVER_TRACKER_TOKEN)) {
+                String n = ml.getClass().getName();
+                if (n.contains("HoverTracker") || n.contains("ComponentTracker") || n.contains("Highlight")) {
                     jc.removeMouseListener(ml);
                 }
             }
             for (var mml : jc.getMouseMotionListeners()) {
-                if (mml != null && mml.getClass().getName().contains("Hover")) { // be a bit broader for motion
+                String n = mml.getClass().getName();
+                if (n.contains("HoverTracker") || n.contains("ComponentTracker") || n.contains("Highlight")) {
                     jc.removeMouseMotionListener(mml);
                 }
             }
         }
 
-        // Also strip from the immediate parents that receive the same trackers
+        // Some are installed on parents; walk up a couple levels
         Container p = c.getParent();
-        for (int i = 0; i < 3 && p != null; i++, p = p.getParent()) {
+        for (int i = 0; i < 4 && p != null; i++, p = p.getParent()) {
             if (p instanceof JComponent pj) {
                 for (var ml : pj.getMouseListeners()) {
-                    if (ml != null && ml.getClass().getName().contains(HOVER_TRACKER_TOKEN)) {
+                    String n = ml.getClass().getName();
+                    if (n.contains("HoverTracker") || n.contains("ComponentTracker") || n.contains("Highlight")) {
                         pj.removeMouseListener(ml);
                     }
                 }
                 for (var mml : pj.getMouseMotionListeners()) {
-                    if (mml != null && mml.getClass().getName().contains("Hover")) {
+                    String n = mml.getClass().getName();
+                    if (n.contains("HoverTracker") || n.contains("ComponentTracker") || n.contains("Highlight")) {
                         pj.removeMouseMotionListener(mml);
                     }
                 }
             }
         }
     }
+
 
 
     // ===== Core painter =====
@@ -302,9 +303,9 @@ public final class DarkPainter {
                 applyAreaDark(c, GRAY_BG);            // JScrollPane/JViewport/JPanel around the tree
             }
 
-            // Tag Browser (bottom-left)
-            if (isTagBrowserArea(c)) {
-                applyAreaDark(c, GRAY_BG);
+            // Tag Browser (bottom-left): darken tree, tables, chrome, and editors
+            if (isUnderTagBrowser(c)) {
+                styleTagBrowserComponent(c);
             }
 
             // Perspective Property Editor (right), includes Session props
@@ -315,6 +316,10 @@ public final class DarkPainter {
         // Ensure Property Editor tables get the dark renderer/editors
         if (darkMode && isPropertyEditorArea(c) && c instanceof JTable) {
             ensurePropertyEditorTableHooks((JTable) c);
+        }
+
+        if (darkMode && isUnder(c, FQCN_PROPERTY_EDITOR_FRAME)) {
+            stripPEHoverOverlays(c);  // keep our own hover, remove OEM white overlay
         }
 
         // Brutal-but-precise fix for white tiles/editors in the Property Editor
@@ -419,6 +424,81 @@ public final class DarkPainter {
         // Trees: ensure selection/renderer contrast
         if (c instanceof JTree tree) styleTreeDark(tree, bg);
     }
+
+    // Keep OEM column renderers (tree renderer, value formatters) intact.
+// Only wrap columns that already use DefaultTableCellRenderer.
+    private void styleTableDarkConservative(JTable t) {
+        t.setForeground(WHITE);
+        t.setBackground(GRAY_BG);
+        t.setSelectionBackground(new Color(75, 110, 175));
+        t.setSelectionForeground(WHITE);
+        t.setGridColor(new Color(100, 100, 100));
+        t.setOpaque(true);
+
+        JTableHeader hdr = t.getTableHeader();
+        if (hdr != null) {
+            hdr.setForeground(WHITE);
+            hdr.setBackground(DARK_GRAY);
+            hdr.setOpaque(true);
+        }
+
+        // Wrap only if the column is already using DefaultTableCellRenderer.
+        int cc = t.getColumnModel().getColumnCount();
+        for (int i = 0; i < cc; i++) {
+            var col = t.getColumnModel().getColumn(i);
+            var base = col.getCellRenderer();
+            if (base instanceof DefaultTableCellRenderer dtr) {
+                col.setCellRenderer(new DarkTableCellRenderer(dtr));
+            } // else: leave OEM renderer alone (tree/value/custom)
+        }
+    }
+
+    private void styleTagBrowserComponent(Component c) {
+        // Containers: scrollpane/viewport/panels
+        if (c instanceof JScrollPane || c instanceof JViewport || c instanceof JPanel) {
+            c.setBackground(GRAY_BG);
+            if (c instanceof JComponent jc) jc.setOpaque(true);
+        }
+
+        // Tree on the left: dark + readable selection
+        if (c instanceof JTree tree) {
+            styleTreeDark(tree, GRAY_BG);
+        }
+
+        // Tables (values / alarms etc.)
+        if (c instanceof JTable table) {
+            ensureTagBrowserTableHooks(table);   // instead of styleTableDark(...) / conservative
+        }
+
+        // Search/filter field at the top of Tag Browser
+        if (c instanceof JTextField tf) {
+            tf.setForeground(WHITE);
+            tf.setCaretColor(WHITE);
+            // leave transparent so the parent chrome shows (no white box)
+            tf.setOpaque(false);
+            // If you prefer a filled field, uncomment:
+            // tf.setOpaque(true); tf.setBackground(DARK_GRAY);
+        }
+
+        // Small toolbar along the top
+        if (c instanceof JToolBar tb) {
+            tb.setBackground(DARK_GRAY);
+            tb.setOpaque(true);  // JToolBar already extends JComponent
+        }
+
+        if (c instanceof AbstractButton btn) {
+            btn.setForeground(WHITE);
+            btn.setOpaque(false); // keep transparent so toolbar bg shows
+        }
+
+        // Tabs within Tag Browser (if present)
+        if (c instanceof JTabbedPane tabs) {
+            tabs.setBackground(GRAY_BG);
+            tabs.setForeground(WHITE);
+            tabs.setOpaque(true);
+        }
+    }
+
 
     private void styleTreeDark(JTree tree, Color bg) {
         tree.setBackground(bg);
@@ -548,6 +628,40 @@ public final class DarkPainter {
             jc.setBackground(PE_ROW_BG);
             jc.putClientProperty(PE_FIXED, Boolean.TRUE);
         }
+        // COLLAPSED/OVERLAY rows: any opaque near-white widget under PE gets dark row bg
+        if (isUnder(c, FQCN_PROPERTY_EDITOR_FRAME)) {
+            String sn = jc.getClass().getSimpleName();
+            boolean looksLikeOverlay =
+                    sn.contains("Overlay") || sn.contains("Stripe") || sn.contains("Row")
+                            || sn.contains("Band")    || sn.contains("Layer")  || sn.contains("Panel");
+
+            if ((jc.isOpaque() && isNearWhite(jc.getBackground())) || looksLikeOverlay) {
+                jc.setBackground(PE_ROW_BG);
+                jc.setOpaque(true);
+                jc.putClientProperty(PE_FIXED, Boolean.TRUE);
+                return;
+            }
+        }
+
+        // existing generic near-white catch:
+        if (jc.isOpaque() && isNearWhite(jc.getBackground())) {
+            jc.setBackground(PE_ROW_BG);
+            jc.putClientProperty(PE_FIXED, Boolean.TRUE);
+        }
+        // Final guard: any overlay-ish widget under Property Editor – don't let it paint white
+        if (isUnder(c, FQCN_PROPERTY_EDITOR_FRAME) && c instanceof JComponent jx) {
+            String sn = jx.getClass().getSimpleName();
+            boolean looksLikeOverlay = sn.contains("Overlay") || sn.contains("Stripe") || sn.contains("Row")
+                    || sn.contains("Band")    || sn.contains("Layer");
+            if (looksLikeOverlay) {
+                // either make it transparent so our cells show through...
+                jx.setOpaque(false);
+                // ...or give it our dark hover so it blends (uncomment one you prefer):
+                // jx.setOpaque(true);
+                // jx.setBackground(PE_ROW_BG); // or PE_HOVER_BG if you want it to match rollover
+            }
+        }
+
     }
 
     private static final String FOCUS_TINT = "dark.focus.tinted";
@@ -674,22 +788,21 @@ public final class DarkPainter {
         return (c instanceof JScrollPane) || (c instanceof JViewport) || (c instanceof JPanel);
     }
 
-    // Tag Browser (bottom-left) – safe heuristics
-    private boolean isTagBrowserArea(Component c) {
-        // Many Tag Browser classes include "tags.browser" or simple names with "TagBrowser"
-        String fq = c.getClass().getName();
-        String sn = c.getClass().getSimpleName();
-        boolean looksLikeTagBrowser =
-                fq.contains(".tags.") && fq.toLowerCase().contains("browser")
-                        || sn.toLowerCase().contains("tagbrowser");
-        if (!looksLikeTagBrowser) return false;
-
-        // We only act on common types so we don't overpaint
-        return (c instanceof JTree) || (c instanceof JTable)
-                || (c instanceof JScrollPane) || (c instanceof JViewport)
-                || (c instanceof JPanel) || (c instanceof JLabel)
-                || (c instanceof JTextComponent);
+    // Tag Browser root detector (robust)
+    private boolean isUnderTagBrowser(Component c) {
+        for (Container p = (c instanceof Container) ? (Container) c : c.getParent();
+             p != null; p = p.getParent()) {
+            String fq = p.getClass().getName();
+            String sn = p.getClass().getSimpleName();
+            // Common Ignition packages + class names
+            if ((fq.contains(".designer.tags") || fq.contains(".tags.") || fq.contains(".tagsbrowser")
+                    || sn.toLowerCase().contains("tagbrowser") || sn.toLowerCase().contains("tagtree"))) {
+                return true;
+            }
+        }
+        return false;
     }
+
 
     // Perspective Property Editor (right pane) – includes Session props
     private boolean isPropertyEditorArea(Component c) {
@@ -700,6 +813,40 @@ public final class DarkPainter {
                 || (c instanceof JPanel) || (c instanceof JLabel)
                 || (c instanceof JTextComponent) || (c instanceof JComboBox);
     }
+
+    // Call this ONLY inside PropertyEditorFrame
+    private void stripPEHoverOverlays(Component c) {
+        if (!isUnder(c, FQCN_PROPERTY_EDITOR_FRAME)) return;
+
+        final String[] TOKENS = {"Hover", "Highlight", "Overlay", "Rollover", "RowHigh"};
+
+        // remove from this component
+        if (c instanceof JComponent jc) {
+            for (var ml : jc.getMouseListeners()) {
+                String n = ml.getClass().getName();
+                for (String t : TOKENS) if (n.contains(t)) { jc.removeMouseListener(ml); break; }
+            }
+            for (var mml : jc.getMouseMotionListeners()) {
+                String n = mml.getClass().getName();
+                for (String t : TOKENS) if (n.contains(t)) { jc.removeMouseMotionListener(mml); break; }
+            }
+        }
+        // and from a few parents (OEM often installs on containers)
+        Container p = c.getParent();
+        for (int i = 0; i < 4 && p != null; i++, p = p.getParent()) {
+            if (p instanceof JComponent pj) {
+                for (var ml : pj.getMouseListeners()) {
+                    String n = ml.getClass().getName();
+                    for (String t : TOKENS) if (n.contains(t)) { pj.removeMouseListener(ml); break; }
+                }
+                for (var mml : pj.getMouseMotionListeners()) {
+                    String n = mml.getClass().getName();
+                    for (String t : TOKENS) if (n.contains(t)) { pj.removeMouseMotionListener(mml); break; }
+                }
+            }
+        }
+    }
+
 
     private boolean isBindingEditorButtons(Component c) {
         if (!(c instanceof JPanel p)) return false;
@@ -757,6 +904,46 @@ public final class DarkPainter {
             hdr.setOpaque(false);
         }
     }
+
+    // Wraps the table’s existing renderer to enforce dark colors without losing OEM icons/formatting.
+    private static final class DarkDelegatingRenderer implements javax.swing.table.TableCellRenderer {
+        private final javax.swing.table.TableCellRenderer base;
+        private final Color rowBg, rowAltBg, hoverBg, selectBg, fg;
+
+        DarkDelegatingRenderer(javax.swing.table.TableCellRenderer base,
+                               Color rowBg, Color rowAltBg, Color hoverBg, Color selectBg, Color fg) {
+            this.base = base;
+            this.rowBg = rowBg; this.rowAltBg = rowAltBg;
+            this.hoverBg = hoverBg; this.selectBg = selectBg; this.fg = fg;
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(
+                JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            Component c = base.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+
+            int modelRow = table.convertRowIndexToModel(row);
+            Color bg = (modelRow % 2 == 0) ? rowBg : rowAltBg;
+
+            Object hoverObj = table.getClientProperty("dark.pe.hoverRow"); // reuse the same key
+            int hover = (hoverObj instanceof Integer) ? (Integer) hoverObj : -1;
+            if (row == hover && !isSelected) bg = hoverBg;
+
+            if (c instanceof JComponent jc) {
+                if (isSelected) {
+                    jc.setBackground(selectBg);
+                    jc.setForeground(fg);
+                    jc.setOpaque(true);
+                } else {
+                    jc.setForeground(fg);
+                    jc.setBackground(bg);
+                    jc.setOpaque(true);   // paint a dark tile; no white boxes
+                }
+            }
+            return c;
+        }
+    }
+
 
     private static final class DarkTableCellRenderer extends DefaultTableCellRenderer {
         private final DefaultTableCellRenderer base;
@@ -817,22 +1004,102 @@ public final class DarkPainter {
 
             super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
 
+            // zebra base
             int modelRow = table.convertRowIndexToModel(row);
             Color bg = (modelRow % 2 == 0) ? PE_ROW_BG : PE_ROW_ALT_BG;
 
-            Object hoverObj = table.getClientProperty(PE_HOVER_ROW);
+            // subtle hover (same key we used for Tag Browser)
+            Object hoverObj = table.getClientProperty(PE_HOVER_ROW); // "dark.pe.hoverRow"
             int hover = (hoverObj instanceof Integer) ? (Integer) hoverObj : -1;
             if (row == hover && !isSelected) {
-                bg = PE_HOVER_BG;
+                bg = PE_HOVER_BG; // same gentle hover you liked
             }
 
             setForeground(WHITE);
             setBackground(isSelected ? PE_SELECT_BG : bg);
-            setOpaque(true); // <- paint the cell ourselves; no white tiles
+            setOpaque(true);
             return this;
         }
     }
 
+
+    private static final String TB_HOOK = "dark.tb.hooked";
+
+    private void ensureTagBrowserTableHooks(JTable t) {
+        if (Boolean.TRUE.equals(t.getClientProperty(TB_HOOK))) return;
+        t.putClientProperty(TB_HOOK, Boolean.TRUE);
+
+        // Base table chrome
+        t.setForeground(WHITE);
+        t.setBackground(GRAY_BG);
+        t.setSelectionBackground(new Color(75, 110, 175));
+        t.setSelectionForeground(WHITE);
+        t.setGridColor(new Color(100, 100, 100));
+        t.setOpaque(true);
+
+        JTableHeader hdr = t.getTableHeader();
+        if (hdr != null) {
+            hdr.setForeground(WHITE);
+            hdr.setBackground(DARK_GRAY);
+            hdr.setOpaque(true);
+        }
+
+        // Find the "Value" column and wrap its renderer (keep OEM, just darken)
+        int cc = t.getColumnModel().getColumnCount();
+        for (int i = 0; i < cc; i++) {
+            String header = String.valueOf(t.getColumnModel().getColumn(i).getHeaderValue()).trim();
+            if ("Value".equalsIgnoreCase(header)) {
+                var col = t.getColumnModel().getColumn(i);
+                var base = col.getCellRenderer();
+                if (base == null) base = t.getDefaultRenderer(t.getColumnClass(i));
+                if (base == null) base = t.getDefaultRenderer(Object.class);
+
+                col.setCellRenderer(new DarkDelegatingRenderer(
+                        base, PE_ROW_BG, PE_ROW_ALT_BG, PE_HOVER_BG, PE_SELECT_BG, WHITE));
+            }
+        }
+
+        // Keep a subtle hover (non-sticky)
+        t.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
+            @Override public void mouseMoved(java.awt.event.MouseEvent e) {
+                int row = t.rowAtPoint(e.getPoint());
+                t.putClientProperty("dark.pe.hoverRow", row);
+                t.repaint();
+            }
+        });
+        t.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseExited(java.awt.event.MouseEvent e) {
+                t.putClientProperty("dark.pe.hoverRow", -1);
+                t.repaint();
+            }
+            @Override public void mousePressed(java.awt.event.MouseEvent e) {
+                t.putClientProperty("dark.pe.hoverRow", -1);
+                t.repaint();
+            }
+        });
+
+        // Darken editor components while editing the Value cell
+        t.addPropertyChangeListener(evt -> {
+            if ("tableCellEditor".equals(evt.getPropertyName()) || "editing".equals(evt.getPropertyName())) {
+                Component ed = t.getEditorComponent();
+                if (ed != null) {
+                    paintDeep(ed); // reuse your painter
+                    if (ed instanceof JTextComponent tc) {
+                        tc.setForeground(WHITE);
+                        tc.setBackground(PE_HOVER_BG);
+                        tc.setCaretColor(WHITE);
+                        tc.setSelectionColor(PE_SELECT_BG);
+                        tc.setSelectedTextColor(WHITE);
+                        tc.setOpaque(true);
+                    } else if (ed instanceof JComponent jc) {
+                        jc.setForeground(WHITE);
+                        jc.setBackground(PE_HOVER_BG);
+                        jc.setOpaque(true);
+                    }
+                }
+            }
+        });
+    }
 
     private void ensurePropertyEditorTableHooks(JTable t) {
         if (Boolean.TRUE.equals(t.getClientProperty(PE_HOOK))) return;
@@ -873,28 +1140,20 @@ public final class DarkPainter {
         t.setDefaultRenderer(String.class,  new PropertyEditorTableRenderer());
         t.setDefaultRenderer(Boolean.class, new PEBooleanRenderer());
 
-        // Hover tracking (repaint full row to avoid sticky highlight)
+        // Hover tracking (same feel as Tag Browser)
         t.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
-            int last = -1;
             @Override public void mouseMoved(java.awt.event.MouseEvent e) {
                 int row = t.rowAtPoint(e.getPoint());
-                if (row != last) {
-                    t.putClientProperty(PE_HOVER_ROW, row);
-                    t.repaint(); // repaint whole table to avoid any stale tiles
-                    last = row;
-                }
+                t.putClientProperty(PE_HOVER_ROW, row);
+                t.repaint();
             }
         });
         t.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override public void mouseExited(java.awt.event.MouseEvent e) {
-                Object prev = t.getClientProperty(PE_HOVER_ROW);
-                if (prev instanceof Integer p && p >= 0) {
-                    t.putClientProperty(PE_HOVER_ROW, -1);
-                    t.repaint(); // clear hover everywhere
-                }
+                t.putClientProperty(PE_HOVER_ROW, -1);
+                t.repaint();
             }
             @Override public void mousePressed(java.awt.event.MouseEvent e) {
-                // also clear hover as soon as you start interacting
                 t.putClientProperty(PE_HOVER_ROW, -1);
                 t.repaint();
             }
