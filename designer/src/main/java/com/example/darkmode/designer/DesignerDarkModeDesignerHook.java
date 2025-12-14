@@ -10,7 +10,7 @@ import java.util.prefs.Preferences;
 
 /**
  * Inserts a single "Dark Mode" toggle in View menu and wires it to a robust painter.
- * Persists user preference in the Designer (per user).
+ * Persists user preference in the Designer (per user)..
  */
 public class DesignerDarkModeDesignerHook extends AbstractDesignerModuleHook {
 

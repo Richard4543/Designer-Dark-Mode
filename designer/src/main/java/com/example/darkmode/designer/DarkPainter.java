@@ -862,7 +862,7 @@ public final class DarkPainter {
         return false;
     }
 
-    // ===== Tables =====
+    // ===== Tables =======
     private void styleTableDark(JTable t) {
         t.setForeground(WHITE);
         t.setBackground(GRAY_BG);
@@ -1004,23 +1004,24 @@ public final class DarkPainter {
 
             super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
 
-            // zebra base
-            int modelRow = table.convertRowIndexToModel(row);
-            Color bg = (modelRow % 2 == 0) ? PE_ROW_BG : PE_ROW_ALT_BG;
-
-            // subtle hover (same key we used for Tag Browser)
+            // subtle hover (same key you already use elsewhere)
             Object hoverObj = table.getClientProperty(PE_HOVER_ROW); // "dark.pe.hoverRow"
             int hover = (hoverObj instanceof Integer) ? (Integer) hoverObj : -1;
-            if (row == hover && !isSelected) {
-                bg = PE_HOVER_BG; // same gentle hover you liked
-            }
 
             setForeground(WHITE);
-            setBackground(isSelected ? PE_SELECT_BG : bg);
-            setOpaque(true);
+            if (isSelected) {
+                setBackground(PE_SELECT_BG);
+                setOpaque(true);   // show selection
+            } else if (row == hover) {
+                setBackground(PE_HOVER_BG);
+                setOpaque(true);   // show hover
+            } else {
+                setOpaque(false);  // no tile; let table bg show through (like Project Browser)
+            }
             return this;
         }
     }
+
 
 
     private static final String TB_HOOK = "dark.tb.hooked";
@@ -1140,11 +1141,11 @@ public final class DarkPainter {
         t.setDefaultRenderer(String.class,  new PropertyEditorTableRenderer());
         t.setDefaultRenderer(Boolean.class, new PEBooleanRenderer());
 
-        // Hover tracking (same feel as Tag Browser)
+
+        // Hover tracking (same feel as Tag Browser; clears on exit/press)
         t.addMouseMotionListener(new java.awt.event.MouseMotionAdapter() {
             @Override public void mouseMoved(java.awt.event.MouseEvent e) {
-                int row = t.rowAtPoint(e.getPoint());
-                t.putClientProperty(PE_HOVER_ROW, row);
+                t.putClientProperty(PE_HOVER_ROW, t.rowAtPoint(e.getPoint()));
                 t.repaint();
             }
         });
@@ -1165,7 +1166,7 @@ public final class DarkPainter {
             if ("tableCellEditor".equals(evt.getPropertyName()) || "editing".equals(evt.getPropertyName())) {
                 Component ed = t.getEditorComponent();
                 if (ed != null) {
-                    paintDeep(ed); // reuse painter for nested bits
+                    paintDeep(ed);
                     if (ed instanceof JTextComponent tc) {
                         tc.setForeground(WHITE);
                         tc.setBackground(PE_HOVER_BG);
@@ -1173,18 +1174,15 @@ public final class DarkPainter {
                         tc.setSelectionColor(PE_SELECT_BG);
                         tc.setSelectedTextColor(WHITE);
                         tc.setOpaque(true);
-                    } else if (ed instanceof JComboBox<?> cb) {
-                        ((JComponent) cb).setOpaque(true);
-                        cb.setForeground(WHITE);
-                        cb.setBackground(PE_HOVER_BG);
                     } else if (ed instanceof JComponent jc) {
-                        jc.setOpaque(true);
                         jc.setForeground(WHITE);
                         jc.setBackground(PE_HOVER_BG);
+                        jc.setOpaque(true);
                     }
                 }
             }
         });
+
     }
 
 
